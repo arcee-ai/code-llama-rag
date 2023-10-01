@@ -17,6 +17,11 @@ def parse_args():
         default="python_lib_functions.csv",
         help="output csv file name",
     )
+    parser.add_argument(
+        "--empty_doc",
+        action="store_true",
+        help="boolean flag to seperate out the empty doc rows",
+    )
     return parser.parse_args()
 
 
@@ -90,8 +95,8 @@ def extract(module_obj, already_extracted_modules, tqdm_obj):
         final_results.append(
             {
                 "function_name": n,
-                "doc": repr(doc),
-                "function": repr(doc + "\n" + source),
+                "doc": doc,
+                "function": source,
             }
         )
 
@@ -107,6 +112,8 @@ def write_to_csv(data, filename):
 
         writer.writeheader()
         for row in data:
+            row["doc"] = repr(row["doc"])
+            row["function"] = repr(row["function"])
             writer.writerow(row)
 
 
@@ -130,4 +137,31 @@ if __name__ == "__main__":
         tqdm_obj.update(1)
     print("Length of all_data: ", len(all_data))
 
-    write_to_csv(all_data, args.output)
+    # get stats on the data
+    empty_doc = 0
+    for row in all_data:
+        if row["doc"] == "":
+            empty_doc += 1
+
+    print(
+        "Number of rows with empty doc: ",
+        empty_doc,
+        "which is ",
+        empty_doc / len(all_data) * 100,
+        "% of the total data",
+    )
+
+    if args.empty_doc:
+        empty_doc_data = []
+        non_empty_doc_data = []
+        for row in all_data:
+            if row["doc"] == "":
+                empty_doc_data.append(row)
+            else:
+                non_empty_doc_data.append(row)
+
+        filename = args.output.split(".")[0]
+        write_to_csv(empty_doc_data, filename + "_empty_docs.csv")
+        write_to_csv(non_empty_doc_data, filename + "_non_empty_docs.csv")
+    else:
+        write_to_csv(all_data, args.output)
