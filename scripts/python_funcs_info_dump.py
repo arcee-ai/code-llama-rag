@@ -1,12 +1,10 @@
-import sys
-import os
 import csv
 import importlib
 import inspect
 import argparse
 import textwrap
-
 import pkgutil
+import tqdm
 
 
 def parse_args():
@@ -35,26 +33,76 @@ def get_all_accessible_modules():
     return modules
 
 
-def gather_fs_from_module(module_name):
-    try:
-        module = importlib.import_module(module_name)
-    except:
-        return []
+def extract_classes_and_functions(node):
+    class_names = []
+    function_names = []
 
-    functions = inspect.getmembers(module, inspect.isfunction)
-    return [
-        {
-            "function_name": name,
-            "doc": clean_string(obj.__doc__),
-            "function": repr(inspect.getsource(obj)),
-        }
-        for name, obj in functions
-    ]
+    for name, child in inspect.getmembers(node):
+        if inspect.isclass(child):
+            try:
+                class_names.append(
+                    (name, inspect.getdoc(child), inspect.getsource(child))
+                )
+            except:
+                pass
+        elif inspect.isfunction(child):
+            try:
+                function_names.append(
+                    (name, inspect.getdoc(child), inspect.getsource(child))
+                )
+            except Exception as e:
+                pass
+
+    return class_names, function_names
+
+
+def extract(module_obj, already_extracted_modules, tqdm_obj):
+    if module_obj.__name__ in already_extracted_modules or not hasattr(
+        module_obj, "__file__"
+    ):
+        return [], already_extracted_modules
+
+    tqdm_obj.set_description(f"Extracting from {module_obj.__name__}")
+
+    already_seen = already_extracted_modules + [module_obj.__name__]
+
+    inner_results = []
+
+    classes_, functions_ = extract_classes_and_functions(module_obj)
+    main_results = classes_ + functions_
+
+    for mod_name, mod in inspect.getmembers(module_obj, inspect.ismodule):
+        try:
+            results_, seen = extract(mod, already_seen, tqdm_obj)
+        except Exception as e:
+            print(f"Error extracting from {mod_name}")
+            print(e)
+            continue
+        inner_results.extend(results_)
+        already_seen = seen
+
+    final_results = []
+    for n, doc, source in main_results:
+        doc = clean_string(doc or "")
+        if source is None:
+            continue
+
+        final_results.append(
+            {
+                "function_name": n,
+                "doc": repr(doc),
+                "function": repr(doc + "\n" + source),
+            }
+        )
+
+    final_results.extend(inner_results)
+
+    return final_results, already_seen
 
 
 def write_to_csv(data, filename):
     with open(filename, "w", newline="", encoding="utf-8") as csvfile:
-        fieldnames = ["function_name", "doc", "function"]
+        fieldnames = data[0].keys()
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         writer.writeheader()
@@ -65,17 +113,21 @@ def write_to_csv(data, filename):
 if __name__ == "__main__":
     args = parse_args()
     all_data = []
-    for module_name in get_all_accessible_modules():
+    already_extracted_modules = []
+    modules = get_all_accessible_modules()
+    tqdm_obj = tqdm.tqdm(total=len(modules), dynamic_ncols=True)
+    for module_name in modules:
         try:
-            fs = [
-                func
-                for func in gather_fs_from_module(module_name)
-                if func["doc"] is not None
-            ]
-            for i in fs:
-                i["doc"] = repr(i["doc"])
-            all_data.extend(fs)
+            module = importlib.import_module(module_name)
+            result, already_extracted_modules = extract(
+                module, already_extracted_modules, tqdm_obj
+            )
+            all_data.extend(result)
+            already_extracted_modules = already_extracted_modules + [module_name]
         except:
-            pass
+            print(f"Top level error: importing {module_name}")
+            continue
+        tqdm_obj.update(1)
+    print("Length of all_data: ", len(all_data))
 
     write_to_csv(all_data, args.output)
