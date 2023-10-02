@@ -138,11 +138,16 @@ def csv_dataloader(csv_file, batch_size=8, state=None):
                 state["index"],
                 "th part of the data",
             )
+
+        last_lap = state["index"] == parts - 1
+
         dataset = Subset(
             dataset,
             range(
                 int(state["index"] * len(dataset) / parts),
-                int((state["index"] + 1) * len(dataset) / parts),
+                int((state["index"] + 1) * len(dataset) / parts)
+                if not last_lap
+                else len(dataset),
             ),
         )
         state["index"] += 1
@@ -156,7 +161,7 @@ def csv_dataloader(csv_file, batch_size=8, state=None):
 
 
 tokenizer = AutoTokenizer.from_pretrained(
-    args.model, quantization_config=bnb_config if args.use_bnb else None
+    args.model
 )
 
 pipeline = transformers.pipeline(
@@ -165,6 +170,7 @@ pipeline = transformers.pipeline(
     torch_dtype=torch.float16,
     device="cuda",
     tokenizer=tokenizer,
+    model_kwargs={"quantization_config": bnb_config if args.use_bnb else None},
 )
 
 
@@ -182,7 +188,7 @@ if __name__ == "__main__":
         state = {"index": 0, "parts": args.split_into}
         pickle.dump(state, open(pickle_file, "wb"))
 
-    r = state["parts"] - state["index"]
+    r = state["parts"] - state["index"] + 1
 
     # =============== Generation ===============
     #
