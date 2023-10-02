@@ -89,7 +89,6 @@ args = parser.parse_args()
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_quant_type="nf4",
-    bnb_4bit_use_double_quant=True,
     bnb_4bit_compute_dtype=torch.bfloat16,
 )
 
@@ -160,15 +159,12 @@ def csv_dataloader(csv_file, batch_size=8, state=None):
     )
 
 
-tokenizer = AutoTokenizer.from_pretrained(
-    args.model
-)
+tokenizer = AutoTokenizer.from_pretrained(args.model)
 
 pipeline = transformers.pipeline(
     "text-generation",
     model=args.model,
     torch_dtype=torch.float16,
-    device="cuda",
     tokenizer=tokenizer,
     model_kwargs={"quantization_config": bnb_config if args.use_bnb else None},
 )
