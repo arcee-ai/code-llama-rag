@@ -14,11 +14,18 @@ import pandas as pd
 from torch.utils.data import Subset
 import pickle
 
-DEFAULT_SYS_PROMPT = "Assume you are a pretend retrieval system and you are expected generate user queries that are purely procedural/how-to in nature that might lead users who are python programmers who need help programming to the given text and nothing more (no jokes, no comments, no conversations, no percieved responses,just start and your answer with a list of 5 queries)"
+# DEFAULT_SYS_PROMPT = "Assume you are a pretend retrieval system and you are expected generate user queries that are purely procedural/how-to in nature that might lead users who are python programmers who need help programming to the given text and nothing more (no jokes, no comments, no conversations, no percieved responses,just start and your answer with a list of 5 queries)"
+#
+#
+# def prompt(prompt) -> str:
+#    prompt = f"<s>[INST] <<SYS>>\n{DEFAULT_SYS_PROMPT}\n<</SYS>>\n\n :for {prompt}, queries are : [/INST]"
+#    return prompt
+
+DEFAULT_SYS_PROMPT = "You are an inverse retrieval system and are expected to generate user based natural language queries that are purely procedural/how-to in nature that might lead users (who are python programmers who need help programming) to the given code and nothing more (no jokes, no comments, no conversations, no percieved responses,just state your answer as a numbered list of 5 natural language queries and END)"
 
 
 def prompt(prompt) -> str:
-    prompt = f"<s>[INST] <<SYS>>\n{DEFAULT_SYS_PROMPT}\n<</SYS>>\n\n :for {prompt}, queries are : [/INST]"
+    prompt = f"<s>[INST] <<SYS>>\n{DEFAULT_SYS_PROMPT}\n<</SYS>>\n\n for CODE: {prompt},\n 5 natural language queries are : [/INST]"
     return prompt
 
 
@@ -88,7 +95,6 @@ args = parser.parse_args()
 
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
     bnb_4bit_compute_dtype=torch.bfloat16,
 )
 
@@ -146,10 +152,9 @@ def csv_dataloader(csv_file, batch_size=8, state=None):
                 int(state["index"] * len(dataset) / parts),
                 int((state["index"] + 1) * len(dataset) / parts)
                 if not last_lap
-                else len(dataset),
+                else len(dataset) - 1,
             ),
         )
-        state["index"] += 1
 
     return (
         torch.utils.data.DataLoader(
@@ -184,7 +189,7 @@ if __name__ == "__main__":
         state = {"index": 0, "parts": args.split_into}
         pickle.dump(state, open(pickle_file, "wb"))
 
-    r = state["parts"] - state["index"] + 1
+    r = state["parts"] - state["index"]
 
     # =============== Generation ===============
     #
@@ -200,7 +205,7 @@ if __name__ == "__main__":
             filename = args.output_csv
         else:
             filename = (
-                args.output_csv.split(".")[0] + "_" + str(state["index"] - 1) + ".csv"
+                args.output_csv.split(".")[0] + "_" + str(state["index"]) + ".csv"
             )
 
         with open(filename, "w") as f:
@@ -213,6 +218,7 @@ if __name__ == "__main__":
                     do_sample=True,
                     top_k=2,
                     num_return_sequences=1,
+                    return_full_text=False,
                     eos_token_id=tokenizer.eos_token_id,
                     max_length=args.max_length,
                 )
@@ -229,11 +235,14 @@ if __name__ == "__main__":
                     ]
                     for line in gen_text:
                         try:
-                            output.writerow([first[i], line[2:], functions[i]])
+                            output.writerow([first[i], repr(line[2:]), functions[i]])
                         except:
                             continue
 
+            state["index"] += 1
             pickle.dump(state, open(pickle_file, "wb"))
 
     print("Deleting state")
     os.remove(pickle_file)
+
+# time python make_questions.py --csv_file final_functions_empty_docs_9.csv --output_csv chicken.csv  --batch_size 3 --use_bnb --max_length 700 --split_into 4 --model codellama/CodeLlama-34b-instruct-hf
